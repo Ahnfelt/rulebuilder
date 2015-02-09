@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Rule builder</title>
+        <script>
+            var RuleBuilder = function(configuration) {
+                configuration.classPrefix = configuration.classPrefix || 'rule-';
+                configuration.listText = configuration.listText || 'of the following are true';
+                configuration.listOperators = configuration.listOperators || ['All', 'Any', 'None'];
+                configuration.defaultField = configuration.defaultField || '';
+                configuration.defaultOperator = configuration.defaultOperator || '';
+                configuration.fields = configuration.fields || [];
+                configuration.onChange = configuration.onChange || function() {};
+
+                var keys = Object.keys; // TODO: This method is not always available
+
+                function buildDropdown(options, selectedOption, callback) {
+                    var element = document.createElement('select');
+                    for(var i = 0; i < options.length; i++) {
+                        var optionElement = document.createElement('option');
+                        optionElement.appendChild(document.createTextNode(options[i]));
+                        element.appendChild(optionElement);
+                    }
+                    if(selectedOption) element.value = selectedOption;
+                    element.onchange = function() { callback(element.value) };
+                    return element;
+                }
+
+                this.buildButton = function(text) {
+                    var element = document.createElement('button');
+                    element.appendChild(document.createTextNode(text));
+                    return element;
+                };
+
+                this.buildButtons = function(term, parent, index) {
+                    if(parent == null) return document.createTextNode('');
+
+                    var removeButton = this.buildButton('-');
+                    var addButton = this.buildButton('+');
+                    var upButton = this.buildButton('↑');
+                    var downButton = this.buildButton('↓');
+
+                    if(index == 0) upButton.disabled = true;
+                    if(index == parent[1].length - 1) downButton.disabled = true;
+
+                    removeButton.onclick = function() {
+                        parent[1].splice(index, 1);
+                        if(parent[1].length == 0) parent[1].push(['Check']);
+                        configuration.onChange();
+                    };
+
+                    addButton.onclick = function() {
+                        parent[1].splice(index + 1, 0, ['Check']);
+                        configuration.onChange();
+                    };
+
+                    upButton.onclick = function() {
+                        parent[1][index] = parent[1][index - 1];
+                        parent[1][index - 1] = term;
+                        configuration.onChange();
+                    };
+
+                    downButton.onclick = function() {
+                        parent[1][index] = parent[1][index + 1];
+                        parent[1][index + 1] = term;
+                        configuration.onChange();
+                    };
+
+                    var element = document.createElement('span');
+                    element.className = configuration.classPrefix + 'buttons';
+                    element.appendChild(document.createTextNode(' \u00a0 '));
+                    element.appendChild(removeButton);
+                    element.appendChild(document.createTextNode(' '));
+                    element.appendChild(addButton);
+                    element.appendChild(document.createTextNode(' '));
+                    element.appendChild(upButton);
+                    element.appendChild(document.createTextNode(' '));
+                    element.appendChild(downButton);
+                    element.appendChild(document.createTextNode(' '));
+                    return element;
+                };
+
+                function setField(term) {
+                    return function(value) {
+                        if(value == 'All' || value == 'Any' || value == 'None') {
+                            if(term[0] == 'Check') { term.length = 0; term.push(value); term.push([['Check', configuration.defaultField]]); }
+                            else term[0] = value;
+                        } else {
+                            if(term[0] != 'Check') { term.length = 0; term.push('Check'); term.push(value); }
+                            else term[1] = value;
+                        }
+                        configuration.onChange();
+                    };
+                }
+
+                this.buildAtom = function(term, parent, index) {
+                    function setOperator(value) { term[2] = value; configuration.onChange(); }
+                    function setParameter(value) { term[3] = value; configuration.onChange(); }
+                    var currentField = term[1];
+                    var currentOperator = term[2];
+                    var currentParameter = term[3];
+                    var operators = currentField != null ? configuration.fields[currentField] : null;
+                    var parameter = currentOperator != null && operators != null ? operators[currentOperator] : null;
+                    var fieldsElement = buildDropdown([configuration.defaultField].concat(configuration.listOperators, keys(configuration.fields)), currentField, setField(term));
+                    var operatorsElement = operators != null ? buildDropdown([configuration.defaultOperator].concat(keys(operators)), currentOperator, setOperator) : null;
+                    var parameterElement;
+                    if(parameter == null) {
+                        parameterElement = null;
+                    } else if(parameter.constructor === Array) {
+                        parameterElement = buildDropdown(parameter, currentParameter, setParameter);
+                    } else if(typeof parameter == 'string' || parameter instanceof String) {
+                        parameterElement = document.createElement('input');
+                        parameterElement.type = parameter;
+                        if(currentParameter) parameterElement.value = currentParameter;
+                        parameterElement.onchange = function() {
+                            setParameter(parameterElement.value);
+                        };
+                    } else {
+                        throw 'Unexpected parameter type: ' + parameter;
+                    }
+                    var element = document.createElement('div');
+                    element.className = configuration.classPrefix + 'atom' + ' ' + configuration.classPrefix + 'rule';
+                    if(fieldsElement) {
+                        fieldsElement.className = configuration.classPrefix + 'field';
+                        element.appendChild(fieldsElement);
+                    }
+                    if(operatorsElement) {
+                        operatorsElement.className = configuration.classPrefix + 'operator';
+                        element.appendChild(document.createTextNode(' '));
+                        element.appendChild(operatorsElement);
+                    }
+                    if(parameterElement) {
+                        parameterElement.className = configuration.classPrefix + 'parameter';
+                        element.appendChild(document.createTextNode(' '));
+                        element.appendChild(parameterElement);
+                    }
+                    element.appendChild(this.buildButtons(term, parent, index));
+                    return element;
+                };
+
+                this.buildList = function(term, parent, index) {
+                    var operator = term[0];
+                    var terms = term[1];
+                    var element = document.createElement('div');
+                    element.className = configuration.classPrefix + 'list' + ' ' + configuration.classPrefix + 'rule';
+                    var operatorElement = document.createElement('div');
+                    operatorElement.className = configuration.classPrefix + 'group';
+                    var selectElement = buildDropdown([configuration.defaultField].concat(configuration.listOperators, keys(configuration.fields)), operator, setField(term));
+                    operatorElement.appendChild(selectElement);
+                    operatorElement.appendChild(document.createTextNode('\u00a0\u00a0' + configuration.listText));
+                    operatorElement.appendChild(this.buildButtons(term, parent, index));
+                    var operandsElement = document.createElement('div');
+                    operandsElement.className = configuration.classPrefix + 'operands';
+                    for(var i = 0; i < terms.length; i++) {
+                        var operandTerm = terms[i];
+                        var operandElement = this.buildTerm(operandTerm, term, i);
+                        operandsElement.appendChild(operandElement);
+                    }
+                    element.appendChild(operatorElement);
+                    element.appendChild(operandsElement);
+                    return element;
+                };
+
+                this.buildTerm = function(term, parent, index) {
+                    if(term[0] == 'Check') {
+                        return this.buildAtom(term, parent, index);
+                    } else {
+                        return this.buildList(term, parent, index);
+                    }
+                };
+
+                this.build = function(term) {
+                    return this.buildTerm(term);
+                };
+            };
+        </script>
+        <style>
+            h3 {
+                color: #303030;
+                font-family: Courier, serif;
+            }
+            .rule-rule {
+                color: #505050;
+                font-size: 13px;
+                font-family: Verdana, sans-serif;
+            }
+            .rule-rule input, .rule-rule select {
+                color: #303030;
+                font-size: 13px;
+                font-family: Verdana, sans-serif;
+            }
+            .rule-rule input, .rule-rule select {
+                padding-left: 5px;
+                box-sizing: border-box;
+                height: 22px;
+                max-height: 22px;
+            }
+            .rule-atom {
+                margin-top: 15px;
+            }
+            .rule-list .rule-list {
+                margin-top: 15px;
+            }
+            .rule-list, .rule-atom {
+                padding: 5px;
+                border-radius: 3px;
+                border: 1px solid rgba(0, 0, 0, 0.1);
+                background: hsl(0, 0%, 97%);
+            }
+            .rule-list .rule-list, .rule-list .rule-atom {
+                background: hsl(0, 0%, 95%);
+            }
+            .rule-list .rule-list .rule-list, .rule-list .rule-list .rule-atom {
+                background: hsl(0, 0%, 92%);
+            }
+            .rule-list .rule-list .rule-list .rule-list, .rule-list .rule-list .rule-list .rule-atom {
+                background: hsl(0, 0%, 89%);
+            }
+            .rule-operands {
+                margin: 15px 5px 5px 15px;
+            }
+            .rule-buttons button {
+                cursor: pointer;
+            }
+            .rule-buttons button:not(:hover), .rule-buttons button[disabled] {
+                opacity: 0.50;
+            }
+            .rule-buttons {
+                visibility: hidden;
+            }
+            .rule-atom:hover .rule-buttons, .rule-group:hover .rule-buttons {
+                visibility: visible;
+            }
+        </style>
+    </head>
+    <body>
+
+        <script>
+            var fields = {
+                "Did": {
+                    "visit": ["(any action)", "/store"]
+                },
+                "Last name": {
+                    "is": "text",
+                    "begins with": "text"
+                },
+                "Updated": {
+                    "at": "date",
+                    "at or before": "date",
+                    "at or after": "date",
+                    "at some time": null
+                },
+                "Country": {
+                    "is": ["Sweden", "Norway", "Denmark"]
+                }
+            };
+            var term = ['Check'];
+            var ruleBuilder = new RuleBuilder({classPrefix: "rule-", fields: fields, onChange: update});
+            var element = document.createElement('div');
+            function update() {
+                console.dir(term);
+                if(element.firstChild) element.removeChild(element.firstChild);
+                element.appendChild(ruleBuilder.build(term));
+                ruleBuilder.build(term);
+            }
+            document.body.appendChild(element);
+            update();
+        </script>
+
+    </body>
+</html>
